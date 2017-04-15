@@ -11,13 +11,21 @@ class FileLock(object):
         # the fd is borrowed, so do not close it
         self.fd = fd
 
-    def acquire(self, write=False, block=False):
+    def acquire(self, ex=False, nb=True):
+        """
+        Acquire a lock on the fd.
+
+        :param ex (optional): default False, acquire a exclusive lock if True
+        :param nb (optional): default True, non blocking if True
+        :return: True if acquired
+
+        """
 
         try:
 
-            lock_flags = fcntl.LOCK_EX if write else fcntl.LOCK_SH
+            lock_flags = fcntl.LOCK_EX if ex else fcntl.LOCK_SH
 
-            if not block:
+            if nb:
 
                 lock_flags |= fcntl.LOCK_NB
 
@@ -30,6 +38,10 @@ class FileLock(object):
             return False
 
     def release(self):
+        """
+        Release lock on the fd.
+
+        """
 
         fcntl.flock(self.fd, fcntl.LOCK_UN)
 
