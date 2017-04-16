@@ -4,15 +4,55 @@ import errno
 import io
 import os
 import tempfile
+from binascii import hexlify
+from hashlib import md5
+from time import time
 
 from tagcache.lock import FileLock
 from tagcache.utils import cached_property, link_file, rename_file, \
         silent_close, silent_unlink
 
 
+class FileCacheManager(object):
+
+    def __init__(self, hash_method=md5):
+
+        self.hash_method = hash_method
+
+    def configure(self, main_dir):
+
+        main_dir = os.path.abspath(main_dir)
+
+        if not os.path.isdir(main_dir):
+
+            raise ValueError("%r is not a directory" % main_dir)
+
+        self.main_dir = main_dir
+
+    @cached_property
+    def data_dir(self):
+
+        return os.path.join(self.main_dir, 'data')
+
+    @cached_property
+    def tmp_dir(self):
+
+        return os.path.join(self.main_dir, 'tmp')
+
+    def name_to_path(self, name, ns=''):
+
+        prefix = '' if not ns else ns + ':'
+
+        name = prefix + hexlify(name)
+
+        h = self.hash_method(name).hexdigest()
+
+        return os.path.join(self.data_dir, h[:2], h[2:4], name)
+
+
 class FileCacheObject(object):
 
-    def __init__(self, manager, fn, key, expire=None, tags=None):
+    def __init__(self, manager, key, content_fn, expire=None, tags=None):
         """
         FileCacheObject represents a single cached item with key 'key'.
 
@@ -35,18 +75,18 @@ class FileCacheObject(object):
         """
         self.manager = manager
 
-        self.fn = fn
-
         self.key = key
+
+        self.content_fn = content_fn
 
         self.expire = expire or 0
 
-        self.tags = tags or []
+        self.tags = set(tags or [])
 
     @cached_property
     def path(self):
 
-        return os.path.abspath(self.manager.key2path(self.key))
+        return os.path.abspath(self.manager.name_to_path(self.key, ns='key'))
 
     @cached_property
     def lock_path(self):
@@ -59,15 +99,15 @@ class FileCacheObject(object):
 
         lock = FileLock(self.lock_path)
 
-        fd = None
+        f = None
 
         try:
 
             try:
 
-                fd = os.open(path, os.O_RDONLY)
+                f = open(path, 'rb')
 
-            except OSError, e:
+            except IOError, e:
 
                 if e.errno != errno.ENOENT:
 
@@ -83,9 +123,9 @@ class FileCacheObject(object):
                 # 'lock.acquire', test it.
                 try:
 
-                    fd = os.open(path, os.O_RDONLY)
+                    f = open(path, 'rb')
 
-                except OSError, e:
+                except IOError, e:
 
                     if e.errno != errno.ENOENT:
 
@@ -99,42 +139,45 @@ class FileCacheObject(object):
                     lock.release()
 
             # There is old cache and no lock here.
-            assert fd is not None and not lock.is_acquired
+            assert f is not None and not lock.is_acquired
 
-            cache = self._load(fd)
+            # Load cache.
+            key, content, expire, tags = self._load(f)
             
             # If the cache is invalid, unless we can get the exclusive
             # lock immediately (non-blocking), use the old one.
-            if not cache.is_valid and lock.acquire(ex=True, nb=True):
+            if not self._check(f, key, content, expire, tags) and \
+                    lock.acquire(ex=True, nb=True):
 
                 return self._generate()
 
-            return cache
+            return content
 
         finally:
 
             lock.release()
 
-            if fd is not None:
+            if f is not None:
 
-                os.silent_close(fd)
+                f.close()
 
     def _generate(self):
 
-        content = self.fn()
+        content = self.content_fn()
 
-        if not isinstance(content, io.IOBase) or not content.seekable():
+        if not isinstance(content, io.BufferedIOBase) or not content.seekable():
 
-            raise TypeError("Expect seekable io.IOBase instance, but got %r" %\
-                    type(content))
+            raise TypeError(
+                "Expect seekable io.BufferedIOBase instance, but got %r" % \
+                        type(content))
 
         tmp_file = None
 
         try:
 
             # Create temp file.
-            tmp_file = tempfile.NamedTemporaryFile(dir=self.manager.tmp_dir,
-                    delete=False)
+            tmp_file = tempfile.NamedTemporaryFile(
+                    dir=self.manager.tmp_dir, delete=False)
 
             # Write meta.
             tmp_file.writelines([
@@ -146,26 +189,21 @@ class FileCacheObject(object):
             # Write content.
             tmp_file.writelines(content.readlines())
 
-            st = os.fstat(tmp_file.file.fileno())
+            if self.tags:
 
-            # (dev, inode) should be unique?
-            tag_file_name = '{0}.{1}'.format(st.st_dev, st.st_ino)
+                # Generate tag file name. XXX: (dev, inode) should be unique?
+                st = os.fstat(tmp_file.file.fileno())
 
-            # Hard link tags.
-            for tag in self.tags:
+                tag_file_name = '{0}.{1}'.format(st.st_dev, st.st_ino)
 
-                tag_file_path = os.path.join(self.manager.tag2path(tag),
-                        tag_file_name)
+                # Hard link tags.
+                for tag in self.tags:
 
-                link_file(tmp_file.name, tag_file_path)
+                    tag_file_path = os.path.join(
+                            self.manager.name_to_path(tag, ns='tag'),
+                            tag_file_name)
 
-            # Now the file should have len(tags) + 1 links.
-            st = os.fstat(tmp_file.file.fileno())
-
-            if st.st_nlink != len(self.tags) + 1:
-
-                # Should not happen.
-                raise RuntimeError("Links != len(tags) + 1")
+                    link_file(tmp_file.name, tag_file_path)
 
             # Final step. Move the tmp file to destination. This is
             # an atomic op.
@@ -184,6 +222,45 @@ class FileCacheObject(object):
 
                 silent_unlink(tmp_file.name)
 
-    def _load(self, fd):
+    def _check(self, f, key, content, expire, tags):
 
-        pass
+        if key != self.key:
+
+            raise RuntimeError("Load %r but got content of %r" % (
+                self.key, key))
+
+        # Check expiration.
+        if expire < time():
+
+            return False
+
+        # Check tags changed?
+        if tags != self.tags:
+
+            return False
+
+        # Check tag validation.
+        st = os.fstat(f.fileno())
+
+        if st.st_nlink != len(tags):
+
+            return False
+
+        return True
+
+    def _load(self, f):
+
+        key = f.readline().strip()
+
+        expire = int(f.readline().strip())
+
+        tags = set(f.readline().strip().split(':'))
+
+        if '' in tags:
+
+            tags.remove('')
+
+        # TODO: make content lazy
+        content = io.BytesIO(f.read())
+
+        return key, content, expire, tags
