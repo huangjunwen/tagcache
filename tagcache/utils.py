@@ -28,7 +28,7 @@ def open_file(filename, flag, mode=0777):
     """
     try:
 
-        return os.open(filename, flag, mode=mode)
+        return os.open(filename, flag, mode)
 
     except OSError, e:
 
@@ -40,7 +40,7 @@ def open_file(filename, flag, mode=0777):
         ensure_intermediate_dir(filename)
 
         # second try
-        return os.open(filename, flag, mode=mode)
+        return os.open(filename, flag, mode)
 
 
 def link_file(src, dst):
