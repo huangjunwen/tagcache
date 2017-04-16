@@ -162,7 +162,7 @@ class FileCacheObject(object):
 
             # Load cache.
             key, content, expire, tags = self._load(f)
-            
+
             # If the cache is invalid, unless we can get the exclusive
             # lock immediately (non-blocking), use the old one.
             if not self._check(f, key, content, expire, tags) and \
@@ -198,10 +198,12 @@ class FileCacheObject(object):
             tmp_file = tempfile.NamedTemporaryFile(
                     dir=self.manager.tmp_dir, delete=False)
 
+            expire_time = 0 if not self.expire else int(time()) + self.expire
+
             # Write meta.
             tmp_file.write('\n'.join([
                 self.key,
-                bytes(self.expire),
+                bytes(expire_time),
                 ":".join(self.tags),
             ]) + '\n')
 
@@ -249,7 +251,7 @@ class FileCacheObject(object):
                 self.key, key))
 
         # Check expiration.
-        if expire < time():
+        if expire and expire < time():
 
             return False
 
@@ -261,7 +263,7 @@ class FileCacheObject(object):
         # Check tag validation.
         st = os.fstat(f.fileno())
 
-        if st.st_nlink != len(tags):
+        if st.st_nlink != len(tags) + 1:
 
             return False
 
