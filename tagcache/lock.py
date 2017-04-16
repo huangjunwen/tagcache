@@ -7,17 +7,36 @@ from tagcache.utils import open_file
 
 
 class FileLock(object):
+    """
+    From flock(2) on linux:
+    
+        ...
+        If a process uses open(2) (or similar) to obtain more than one 
+        descriptor for the same file, these descriptors are treated 
+        independently by flock().
+        ...
+
+    and on bsd:
+
+        ...
+        Locks are on files, not file descriptors.
+        ...
+
+    So the file lock open new fd in each instance to provide lock
+    sematic in multi-threads/processes enviroment.
+        
+    """
 
     def __init__(self, path):
 
-        self.path = path
+        self._path = path
 
-        self.fd = None
+        self._fd = None
 
     @property
     def is_acquired(self):
 
-        return self.fd is not None
+        return self._fd is not None
 
     def acquire(self, ex=False, nb=False):
         """
@@ -29,14 +48,14 @@ class FileLock(object):
         :raise: raise RuntimeError if a lock has been acquired
 
         """
-        if self.fd is not None:
+        if self._fd is not None:
 
             raise RuntimeError("A lock has been held")
 
         try:
 
             # open or create the lock file
-            self.fd = open_file(self.path, os.O_RDWR|os.O_CREAT)
+            self._fd = open_file(self._path, os.O_RDWR|os.O_CREAT)
 
             lock_flags = fcntl.LOCK_EX if ex else fcntl.LOCK_SH
 
@@ -44,17 +63,17 @@ class FileLock(object):
 
                 lock_flags |= fcntl.LOCK_NB
 
-            fcntl.flock(self.fd, lock_flags)
+            fcntl.flock(self._fd, lock_flags)
 
             return True
 
         except Exception, e:
 
-            if self.fd is not None:
+            if self._fd is not None:
 
-                os.close(self.fd)
+                os.close(self._fd)
                 
-                self.fd = None
+                self._fd = None
             
             return False
 
@@ -63,13 +82,15 @@ class FileLock(object):
         Release the lock.
 
         """
-        if self.fd is None:
+        if self._fd is None:
 
             return
 
-        fcntl.flock(self.fd, fcntl.LOCK_UN)
+        fcntl.flock(self._fd, fcntl.LOCK_UN)
 
-        self.fd = None
+        os.close(self._fd)
+
+        self._fd = None
 
 
 
