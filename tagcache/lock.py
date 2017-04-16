@@ -3,25 +3,35 @@
 import os
 import fcntl
 
+from tagcache.utils import open_file
+
 
 class FileLock(object):
 
-    def __init__(self, fd):
+    def __init__(self, path):
 
-        # the fd is borrowed, so do not close it
-        self.fd = fd
+        self.path = path
 
-    def acquire(self, ex=False, nb=True):
+        self.fd = None
+
+    def acquire(self, ex=False, nb=False):
         """
-        Acquire a lock on the fd.
+        Acquire a lock on a path.
 
         :param ex (optional): default False, acquire a exclusive lock if True
-        :param nb (optional): default True, non blocking if True
-        :return: True if acquired
+        :param nb (optional): default False, non blocking if True
+        :return: True on success
+        :raise: raise RuntimeError if a lock has been acquired
 
         """
+        if self.fd is not None:
+
+            raise RuntimeError("A lock has been held")
 
         try:
+
+            # open or create the lock file
+            self.fd = open_file(self.path, os.O_RDWR|os.O_CREAT)
 
             lock_flags = fcntl.LOCK_EX if ex else fcntl.LOCK_SH
 
@@ -33,17 +43,28 @@ class FileLock(object):
 
             return True
 
-        except IOError:
+        except Exception, e:
+
+            if self.fd is not None:
+
+                os.close(self.fd)
+                
+                self.fd = None
             
             return False
 
     def release(self):
         """
-        Release lock on the fd.
+        Release the lock.
 
         """
+        if self.fd is None:
+
+            return
 
         fcntl.flock(self.fd, fcntl.LOCK_UN)
+
+        self.fd = None
 
 
 
