@@ -14,6 +14,11 @@ class FileLock(object):
 
         self.fd = None
 
+    @property
+    def is_acquired(self):
+
+        return self.fd is not None
+
     def acquire(self, ex=False, nb=False):
         """
         Acquire a lock on a path.
