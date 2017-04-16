@@ -5,12 +5,13 @@ import io
 import os
 import tempfile
 from binascii import hexlify
+from functools import wraps
 from hashlib import md5
 from time import time
 
 from tagcache.lock import FileLock
 from tagcache.utils import cached_property, link_file, rename_file, \
-        silent_close, silent_unlink
+        silent_close, silent_unlink, ensure_dir
 
 
 class FileCacheManager(object):
@@ -32,12 +33,20 @@ class FileCacheManager(object):
     @cached_property
     def data_dir(self):
 
-        return os.path.join(self.main_dir, 'data')
+        ret = os.path.join(self.main_dir, 'data')
+
+        ensure_dir(ret)
+
+        return ret
 
     @cached_property
     def tmp_dir(self):
 
-        return os.path.join(self.main_dir, 'tmp')
+        ret = os.path.join(self.main_dir, 'tmp')
+
+        ensure_dir(ret)
+
+        return ret
 
     def name_to_path(self, name, ns=''):
 
@@ -48,6 +57,16 @@ class FileCacheManager(object):
         h = self.hash_method(name).hexdigest()
 
         return os.path.join(self.data_dir, h[:2], h[2:4], name)
+
+    def __call__(self, key, expire=None, tags=None):
+
+        def ret(content_fn):
+
+            return FileCacheObject(self, key, content_fn, expire=expire,
+                    tags=tags)
+
+        return ret
+
 
 
 class FileCacheObject(object):
@@ -180,14 +199,14 @@ class FileCacheObject(object):
                     dir=self.manager.tmp_dir, delete=False)
 
             # Write meta.
-            tmp_file.writelines([
+            tmp_file.write('\n'.join([
                 self.key,
                 bytes(self.expire),
                 ":".join(self.tags),
-            ])
+            ]) + '\n')
 
             # Write content.
-            tmp_file.writelines(content.readlines())
+            tmp_file.write(content.read())
 
             if self.tags:
 

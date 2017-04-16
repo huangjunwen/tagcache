@@ -4,7 +4,7 @@ import os
 import errno
 
 
-def ensure_intermediate_dir(path):
+def ensure_dir(path):
     """
     Basiclly equivalent to command `mkdir -p`
 
@@ -12,13 +12,20 @@ def ensure_intermediate_dir(path):
 
     try:
 
-        os.makedirs(os.path.dirname(path))
+        os.makedirs(path)
 
     except OSError, e:
 
         if e.errno != errno.EEXIST:
 
             raise e
+
+def ensure_intermediate_dir(path):
+    """
+    Ensure intermediate dir of a path.
+
+    """
+    return ensure_dir(os.path.dirname(path))
 
 
 def open_file(filename, flag, mode=0777):
