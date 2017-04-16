@@ -83,6 +83,40 @@ def rename_file(old, new):
         return os.rename(old, new)
 
 
+def silent_close(fd):
+    """
+    Wrapper of `os.close` which do not raise when the fd is bad fd.
+
+    """
+
+    try:
+
+        return os.close(fd)
+
+    except OSError, e:
+
+        if e.errno != errno.EBADF:
+
+            raise e
+
+
+def silent_unlink(path):
+    """
+    Wrapper of `os.unlink` which do not raise when the path not exists.
+
+    """
+
+    try:
+
+        return os.unlink(path)
+
+    except OSError, e:
+
+        if e.errno != errno.ENOENT:
+
+            raise e
+
+
 class cached_property(object):
     """
     Cached property is a kind of descriptor. 
