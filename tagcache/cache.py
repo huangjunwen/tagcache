@@ -3,6 +3,7 @@
 import errno
 import io
 import os
+import re
 import tempfile
 from binascii import hexlify
 from functools import wraps
@@ -14,12 +15,18 @@ from tagcache.utils import cached_property, link_file, rename_file, \
         silent_close, silent_unlink, ensure_dir
 
 
-class CacheManager(object):
+# datetime.fromtimestamp(2**32)  -> datetime.datetime(2106, 2, 7, 14, 28, 16)
+_future_timestamp = 2**32
+
+
+class Cache(object):
     """
 
     'key' and 'tags' can only contains [a-zA-Z0-9\-_\.@].
 
     """
+
+    key_matcher = re.compile(r'^[A-z0-9\-_\.@]+$').match
 
     def __init__(self, hash_method=md5):
 
@@ -63,26 +70,54 @@ class CacheManager(object):
 
         return os.path.join(self.data_dir, h[:2], h[2:4], name)
 
+    def key_to_path(self, name):
+
+        return self.name_to_path(name, ns='key')
+
+    def tag_to_path(self, name):
+
+        return self.name_to_path(name, ns='tag')
+
     def __call__(self, key, expire=None, tags=None):
 
+        if not self.key_matcher(key):
 
+            raise ValueError("Bad key format {0!r}".format(key))
+
+        if expire is not None and not isinstance(expire, int):
+
+            raise TypeError(
+                "Expect integer value for expire but got {0!r}".format(
+                type(expire)))
+
+        if tags:
+
+            for tag in tags:
+
+                if not self.key_matcher(tag):
+
+                    raise ValueError("Bad tag format {0!r}".format(tag))
 
         def ret(content_fn):
 
-            return CacheObject(self, key, content_fn, expire=expire,
+            if not callable(content_fn):
+
+                raise ValueError("Expect callable content function")
+
+            return CacheItem(self, key, content_fn, expire=expire,
                     tags=tags)
 
         return ret
 
 
+class CacheItem(object):
 
-class CacheObject(object):
-
-    def __init__(self, manager, key, content_fn, expire=None, tags=None):
+    def __init__(self, cache, key, content_fn, expire=None, tags=None):
         """
-        CacheObject represents a single cached item with key 'key'.
+        CacheItem represents a single cached item with key 'key' and
+        optional some 'tags'.
 
-        The format in a file cache is:
+        The format in file is:
 
         ```
         key
@@ -96,21 +131,29 @@ class CacheObject(object):
         line 3 contains the tags seperated by ':'.
         line 4 and so on the real payload.
 
+        :param cache: Cache object.
+        :param key: the key for this cache item.
+        :param content_fn: the function to generate content on demand, the
+            function should return a seekable io.BufferedIOBase object.
+        :param expire (optional): default None (never expire), expire interval
+            in seconds (int).
+        :param tags (optional): default None (no tag), list of tag names.
+
         """
-        self.manager = manager
+        self.cache = cache
 
         self.key = key
 
         self.content_fn = content_fn
 
-        self.expire = expire or 0
+        self.expire = expire
 
         self.tags = set(tags or [])
 
     @cached_property
     def path(self):
 
-        return os.path.abspath(self.manager.name_to_path(self.key, ns='key'))
+        return os.path.abspath(self.cache.key_to_path(self.key))
 
     @cached_property
     def lock_path(self):
@@ -118,6 +161,13 @@ class CacheObject(object):
         return self.path + '.lock'
 
     def __call__(self):
+        """
+        Get content of this cache item. `content_fn` may be called on 
+        cache miss.
+
+        :return: io.BufferedIOBase object
+
+        """
 
         path = self.path
 
@@ -202,9 +252,10 @@ class CacheObject(object):
 
             # Create temp file.
             tmp_file = tempfile.NamedTemporaryFile(
-                    dir=self.manager.tmp_dir, delete=False)
+                    dir=self.cache.tmp_dir, delete=False)
 
-            expire_time = 0 if not self.expire else int(time()) + self.expire
+            expire_time = _future_timestamp if not self.expire else \
+                    int(time()) + self.expire
 
             # Write meta.
             tmp_file.write('\n'.join([
@@ -218,19 +269,24 @@ class CacheObject(object):
 
             if self.tags:
 
-                # Generate tag file name. XXX: (dev, inode) should be unique?
+                # Using the inode as tag file name.
                 st = os.fstat(tmp_file.file.fileno())
 
-                tag_file_name = '{0}.{1}'.format(st.st_dev, st.st_ino)
+                tag_file_name = '{0}'.format(st.st_ino)
+
+                sub_dir = tag_file_name[-2:]
 
                 # Hard link tags.
                 for tag in self.tags:
 
                     tag_file_path = os.path.join(
-                            self.manager.name_to_path(tag, ns='tag'),
+                            self.cache.tag_to_path(tag), sub_dir,
                             tag_file_name)
 
                     link_file(tmp_file.name, tag_file_path)
+
+            # XXX: Change mtime of the cache file to the expire time.
+            os.utime(tmp_file.name, (expire_time, expire_time))
 
             # Final step. Move the tmp file to destination. This is
             # an atomic op.
@@ -257,7 +313,7 @@ class CacheObject(object):
                 self.key, key))
 
         # Check expiration.
-        if expire and expire < time():
+        if expire < time():
 
             return False
 
