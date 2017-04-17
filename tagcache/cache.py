@@ -1,6 +1,7 @@
 # -*- encoding: utf-8 -*-
 
 import errno
+import fcntl
 import io
 import os
 import re
@@ -11,7 +12,6 @@ from functools import wraps
 from hashlib import md5
 from time import time
 
-from tagcache.lock import FileLock
 from tagcache.serialize import PickleSerializer
 from tagcache.utils import cached_property, link_file, rename_file, \
         silent_close, silent_unlink, ensure_dir
@@ -119,7 +119,7 @@ class Cache(object):
 
             raise ValueError("Bad key format {0!r}".format(key))
 
-        silent_unlink(self.key_to_path(key))
+        os.utime(self.key_to_path(key), None)
 
     def __call__(self, key, expire=None, tags=None):
         """
@@ -177,16 +177,12 @@ class CacheItem(object):
         The format in file is:
 
         ```
-        key
-        1492334827
         tag1:tag2:tag3
         content
         ```
 
-        line 1 contains the key.
-        line 2 contains the expire time (in string).
-        line 3 contains the tags seperated by ':'.
-        line 4 and so on the real payload.
+        line 1 contains the tags seperated by ':'.
+        line 2 and so on the real payload.
 
         :param cache: Cache object.
         :param key: the key for this cache item.
@@ -222,21 +218,14 @@ class CacheItem(object):
         Get content of this cache item. `content_fn` may be called when
         cache miss.
 
-        :return: io.BufferedIOBase object
-
         """
-
-        path = self.path
-
-        lock = FileLock(self.lock_path)
-
         f = None
 
         try:
 
             try:
 
-                f = open(path, 'rb')
+                f = open(self.path, 'rb')
 
             except IOError, e:
 
@@ -244,54 +233,42 @@ class CacheItem(object):
 
                     raise e
 
-                # Not exists. Get a exclusive lock (blocking) before generating
-                # content.
-                if not lock.acquire(ex=True, nb=False):
-
-                    raise RuntimeError(
-                            "Can't get exclusive lock on {0!r}".format(path))
-
-                # Since some other may have created the cache during 
-                # 'lock.acquire', test it.
-                try:
-
-                    f = open(path, 'rb')
-
-                except IOError, e:
-
-                    if e.errno != errno.ENOENT:
-
-                        raise e
-
-                    # Still not exist, create it.
-                    return self._generate()
-
-                else:
-                    
-                    lock.release()
-
-            # There is old cache and no lock here.
-            assert f is not None and not lock.is_acquired
-
-            # Load cache.
-            key, content_io, expire, tags = self._load(f)
-
-            # If the cache is invalid, unless we can get the exclusive
-            # lock immediately (non-blocking), use the old one.
-            if not self._check(f, key, expire, tags) and \
-                    lock.acquire(ex=True, nb=True):
-
                 return self._generate()
 
+            expired, tags_invalid, content_io = self._load(f)
+
+            if expired or tags_invalid:
+
+                if self._acquire_flock(f.fileno()):
+
+                    return self._generate()
+
+            # Use old cache.
             return self.cache.serializer.deserialize(content_io)
 
         finally:
 
-            lock.release()
-
             if f is not None:
 
-                f.close()
+                try:
+                    
+                    f.close()
+
+                except:
+
+                    pass
+
+    def _acquire_flock(self, fd):
+
+        try:
+
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+            return True
+
+        except IOError:
+
+            return False
 
     def _generate(self):
 
@@ -318,8 +295,6 @@ class CacheItem(object):
 
             # Write meta.
             tmp_file.write('\n'.join([
-                self.key,
-                bytes(expire_time),
                 ":".join(self.tags),
             ]) + '\n')
 
@@ -367,45 +342,23 @@ class CacheItem(object):
 
                 silent_unlink(tmp_file.name)
 
-    def _check(self, f, key, expire, tags):
-
-        if key != self.key:
-
-            raise RuntimeError("Load {0!r} but got content of {1!r}".format(
-                self.key, key))
-
-        # Check expiration.
-        if expire < time():
-
-            return False
-
-        # Check tags changed?
-        if tags != self.tags:
-
-            return False
-
-        # Check tag validation.
-        st = os.fstat(f.fileno())
-
-        if st.st_nlink != len(tags) + 1:
-
-            return False
-
-        return True
-
     def _load(self, f):
 
-        key = f.readline().strip()
+        # 'mtime' stores the expire time.
+        st = os.fstat(f.fileno())
 
-        expire = int(f.readline().strip())
+        expired = st.st_mtime < time()
 
+        # Check tags and nlink.
         tags = set(f.readline().strip().split(':'))
 
         if '' in tags:
 
             tags.remove('')
 
-        return key, f, expire, tags
+        tags_invalid = tags != self.tags or len(tags) + 1 != st.st_nlink
+
+        return expired, tags_valid, f
 
 
 class NotCache(object):
