@@ -30,7 +30,7 @@ class Cache(object):
 
     key_matcher = re.compile(r'^[A-z0-9\-_\.@]+$').match
 
-    def __init__(self, hash_method=md5, serializer=None):
+    def __init__(self, main_dir=None, hash_method=md5, serializer=None):
         """
         Create a cache object. `hash_method` is used to hash keys
         into file path; `serializer` is used to dump/load object
@@ -45,6 +45,10 @@ class Cache(object):
             serializer = PickleSerializer()
 
         self.serializer = serializer
+
+        if main_dir is not None:
+
+            self.configure(main_dir)
 
     def configure(self, main_dir):
         """
@@ -207,11 +211,6 @@ class CacheItem(object):
     def path(self):
 
         return os.path.abspath(self.cache.key_to_path(self.key))
-
-    @cached_property
-    def lock_path(self):
-
-        return self.path + '.lock'
 
     def __call__(self):
         """
