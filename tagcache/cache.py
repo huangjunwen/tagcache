@@ -262,7 +262,7 @@ class CacheItem(object):
 
         try:
 
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX|fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
 
             return True
 
@@ -282,7 +282,7 @@ class CacheItem(object):
         # Serialize content into io.
         content_io = self.cache.serializer.serialize(content)
 
-        tmp_file = None
+        tmp_file = tmp_file_path = None
 
         try:
 
@@ -290,17 +290,15 @@ class CacheItem(object):
             tmp_file = tempfile.NamedTemporaryFile(
                     dir=self.cache.tmp_dir, delete=False)
 
-            expire_time = _future_timestamp if not self.expire else \
-                    int(time()) + self.expire
-
-            # Write meta.
-            tmp_file.write('\n'.join([
-                ":".join(self.tags),
-            ]) + '\n')
+            tmp_file_path = tmp_file.name
 
             # Write content.
-            tmp_file.write(content_io.read())
+            tmp_file.write('\n'.join([
+                ":".join(self.tags),
+                content_io.read(),
+            ]))
 
+            # Link tags.
             if self.tags:
 
                 # Using the inode as tag file name.
@@ -319,12 +317,24 @@ class CacheItem(object):
 
                     link_file(tmp_file.name, tag_file_path)
 
-            # XXX: Change mtime of the cache file to the expire time.
-            os.utime(tmp_file.name, (expire_time, expire_time))
+            # Close it.
+            tmp_file.close()
+
+            # No more use tmp_file.
+            tmp_file = None
+
+            # Using mtime as expire time.
+            expire_time = _future_timestamp if not self.expire else \
+                    int(time()) + self.expire
+
+            os.utime(tmp_file_path, (expire_time, expire_time))
 
             # Final step. Move the tmp file to destination. This is
             # an atomic op.
-            rename_file(tmp_file.name, self.path)
+            rename_file(tmp_file_path, self.path)
+
+            # No more use tmp_file_path.
+            tmp_file_path = None
 
             return content
 
@@ -340,7 +350,9 @@ class CacheItem(object):
                     
                     pass
 
-                silent_unlink(tmp_file.name)
+            if tmp_file_path is not None:
+
+                silent_unlink(tmp_file_path)
 
     def _load(self, f):
 
@@ -358,7 +370,7 @@ class CacheItem(object):
 
         tags_invalid = tags != self.tags or len(tags) + 1 != st.st_nlink
 
-        return expired, tags_valid, f
+        return expired, tags_invalid, f
 
 
 class NotCache(object):
