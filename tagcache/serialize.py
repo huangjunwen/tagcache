@@ -47,6 +47,8 @@ class JSONSerializer(Serializer):
 
         json.dump(obj, ret, **self.dump_opt)
 
+        ret.seek(0)
+
         return ret
 
 
@@ -68,5 +70,7 @@ class PickleSerializer(Serializer):
         ret = io.BytesIO()
 
         pickle.dump(obj, ret, protocol=self.protocol)
+
+        ret.seek(0)
 
         return ret
