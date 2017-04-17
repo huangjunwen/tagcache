@@ -14,7 +14,12 @@ from tagcache.utils import cached_property, link_file, rename_file, \
         silent_close, silent_unlink, ensure_dir
 
 
-class FileCacheManager(object):
+class CacheManager(object):
+    """
+
+    'key' and 'tags' can only contains [a-zA-Z0-9\-_\.@].
+
+    """
 
     def __init__(self, hash_method=md5):
 
@@ -26,7 +31,7 @@ class FileCacheManager(object):
 
         if not os.path.isdir(main_dir):
 
-            raise ValueError("%r is not a directory" % main_dir)
+            raise ValueError("{0} is not a directory".format(main_dir))
 
         self.main_dir = main_dir
 
@@ -60,22 +65,22 @@ class FileCacheManager(object):
 
     def __call__(self, key, expire=None, tags=None):
 
+
+
         def ret(content_fn):
 
-            return FileCacheObject(self, key, content_fn, expire=expire,
+            return CacheObject(self, key, content_fn, expire=expire,
                     tags=tags)
 
         return ret
 
 
 
-class FileCacheObject(object):
+class CacheObject(object):
 
     def __init__(self, manager, key, content_fn, expire=None, tags=None):
         """
-        FileCacheObject represents a single cached item with key 'key'.
-
-        'key' and 'tags' can only contains [a-zA-Z0-9\-_\.@].
+        CacheObject represents a single cached item with key 'key'.
 
         The format in a file cache is:
 
@@ -136,7 +141,8 @@ class FileCacheObject(object):
                 # content.
                 if not lock.acquire(ex=True, nb=False):
 
-                    raise RuntimeError("Can't get exclusive lock on %r" % path)
+                    raise RuntimeError(
+                            "Can't get exclusive lock on {0!r}".format(path))
 
                 # Since some other may have created the cache during 
                 # 'lock.acquire', test it.
@@ -187,8 +193,8 @@ class FileCacheObject(object):
         if not isinstance(content, io.BufferedIOBase) or not content.seekable():
 
             raise TypeError(
-                "Expect seekable io.BufferedIOBase instance, but got %r" % \
-                        type(content))
+                "Expect seekable io.BufferedIOBase instance, but got {0!r}".format(
+                type(content)))
 
         tmp_file = None
 
@@ -247,7 +253,7 @@ class FileCacheObject(object):
 
         if key != self.key:
 
-            raise RuntimeError("Load %r but got content of %r" % (
+            raise RuntimeError("Load {0!r} but got content of {1!r}".format(
                 self.key, key))
 
         # Check expiration.
