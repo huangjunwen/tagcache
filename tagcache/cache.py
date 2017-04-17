@@ -4,6 +4,7 @@ import errno
 import io
 import os
 import re
+import shutil
 import tempfile
 from binascii import hexlify
 from functools import wraps
@@ -106,7 +107,7 @@ class Cache(object):
 
             raise ValueError("Bad tag format {0!r}".format(tag))
 
-        silent_unlink(self.tag_to_path(tag))
+        shutil.rmtree(self.tag_to_path(tag), ignore_errors=True)
 
     def invalidate_key(self, key):
         """
