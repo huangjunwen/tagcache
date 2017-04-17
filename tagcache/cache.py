@@ -11,6 +11,7 @@ from hashlib import md5
 from time import time
 
 from tagcache.lock import FileLock
+from tagcache.serialize import PickleSerializer
 from tagcache.utils import cached_property, link_file, rename_file, \
         silent_close, silent_unlink, ensure_dir
 
@@ -28,11 +29,29 @@ class Cache(object):
 
     key_matcher = re.compile(r'^[A-z0-9\-_\.@]+$').match
 
-    def __init__(self, hash_method=md5):
+    def __init__(self, hash_method=md5, serializer=None):
+        """
+        Create a cache object. `hash_method` is used to hash keys
+        into file path; `serializer` is used to dump/load object
+        to/from io
+        
+        """
 
         self.hash_method = hash_method
 
+        if serializer is None:
+
+            serializer = PickleSerializer()
+
+        self.serializer = serializer
+
     def configure(self, main_dir):
+        """
+        Configure the cache.
+
+        :param main_dir: the dir contains everything.
+
+        """
 
         main_dir = os.path.abspath(main_dir)
 
@@ -78,7 +97,44 @@ class Cache(object):
 
         return self.name_to_path(name, ns='tag')
 
+    def invalidate_tag(self, tag):
+        """
+        Invalidate cache with the tag.
+
+        """
+        if not self.key_matcher(tag):
+
+            raise ValueError("Bad tag format {0!r}".format(tag))
+
+        silent_unlink(self.tag_to_path(tag))
+
+    def invalidate_key(self, key):
+        """
+        Invalidate cache with the key.
+
+        """
+
+        if not self.key_matcher(key):
+
+            raise ValueError("Bad key format {0!r}".format(key))
+
+        silent_unlink(self.key_to_path(key))
+
     def __call__(self, key, expire=None, tags=None):
+        """
+        Main decorator. Example usage:
+
+            cache = Cache()
+            cache.configure('/var/cache')
+
+            @cache('blog-home', expire=3600*24*7, tags=('home', 'blog'))
+            def blog_home():
+                ...
+                ...
+
+            value = blog_home()
+
+        """
 
         if not self.key_matcher(key):
 
@@ -162,7 +218,7 @@ class CacheItem(object):
 
     def __call__(self):
         """
-        Get content of this cache item. `content_fn` may be called on 
+        Get content of this cache item. `content_fn` may be called when
         cache miss.
 
         :return: io.BufferedIOBase object
@@ -217,16 +273,16 @@ class CacheItem(object):
             assert f is not None and not lock.is_acquired
 
             # Load cache.
-            key, content, expire, tags = self._load(f)
+            key, content_io, expire, tags = self._load(f)
 
             # If the cache is invalid, unless we can get the exclusive
             # lock immediately (non-blocking), use the old one.
-            if not self._check(f, key, content, expire, tags) and \
+            if not self._check(f, key, expire, tags) and \
                     lock.acquire(ex=True, nb=True):
 
                 return self._generate()
 
-            return content
+            return self.cache.serializer.deserialize(content_io)
 
         finally:
 
@@ -240,11 +296,13 @@ class CacheItem(object):
 
         content = self.content_fn()
 
-        if not isinstance(content, io.BufferedIOBase) or not content.seekable():
+        # Do not cache the generated object.
+        if isinstance(content, NotCache):
 
-            raise TypeError(
-                "Expect seekable io.BufferedIOBase instance, but got {0!r}".format(
-                type(content)))
+            return content.not_cache_object
+
+        # Serialize content into io.
+        content_io = self.cache.serializer.serialize(content)
 
         tmp_file = None
 
@@ -265,7 +323,7 @@ class CacheItem(object):
             ]) + '\n')
 
             # Write content.
-            tmp_file.write(content.read())
+            tmp_file.write(content_io.read())
 
             if self.tags:
 
@@ -292,20 +350,23 @@ class CacheItem(object):
             # an atomic op.
             rename_file(tmp_file.name, self.path)
 
-            # Seek back content.
-            content.seek(0)
-
             return content
 
         finally:
 
             if tmp_file is not None:
 
-                tmp_file.close()
+                try:
+
+                    tmp_file.close()
+
+                except:
+                    
+                    pass
 
                 silent_unlink(tmp_file.name)
 
-    def _check(self, f, key, content, expire, tags):
+    def _check(self, f, key, expire, tags):
 
         if key != self.key:
 
@@ -343,7 +404,17 @@ class CacheItem(object):
 
             tags.remove('')
 
-        # TODO: make content lazy
-        content = io.BytesIO(f.read())
+        return key, f, expire, tags
 
-        return key, content, expire, tags
+
+class NotCache(object):
+    """
+    Sometimes you don't want to cache the object you return.
+
+    """
+
+    def __init__(self, not_cache_object):
+
+        self.not_cache_object = not_cache_object
+
+
