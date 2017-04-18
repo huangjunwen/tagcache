@@ -28,7 +28,7 @@ def ensure_intermediate_dir(path):
     return ensure_dir(os.path.dirname(path))
 
 
-def open_file(filename, flag, mode=0777):
+def open_file(filename, flag, mode=0o777):
     """
     Wrapper of `os.open` which ensure intermediate dirs are created as well.
 
