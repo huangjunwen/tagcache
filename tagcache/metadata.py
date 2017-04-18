@@ -4,7 +4,7 @@ package = 'tagcache'
 
 version = '0.1'
 
-description = 'A file-based cache library with efficient tag support.'
+description = 'A small file-based cache library with tag support.'
 
 authors = ['Huang Junwen',]
 

@@ -57,6 +57,9 @@ class Cache(object):
         :param main_dir: the dir contains everything.
 
         """
+        if hasattr(self, 'main_dir'):
+
+            raise RuntimeError("`configure` has been called")
 
         main_dir = os.path.abspath(main_dir)
 
