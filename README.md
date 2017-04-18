@@ -11,7 +11,7 @@ Suppose you have a blog. And want to cache blog pages (e.g. home page).
 
 - First you need to create and configure a `Cache` object.
 
-```
+```python
 from tagcache import Cache, NotCache
 
 cache = Cache()
@@ -24,15 +24,15 @@ cache.configure('/tmp/blog_cache')
 - Decorate the content function with the `Cache` object. In the following example
   - `blog-home` is the key name of the cache
   - `expire` specify the expiration in seconds of the cache (7 days), never expire if omitted
-  - `blog-added` and `bio-changed` are the tags of the cache
+  - `blog-new` and `bio` are the tags of the cache
   - finally call the decorated function to get content, the function will use cache or call the original function to generate new content when cache miss
 
-```
+```python
 @cache("blog-home", expire=3600*24*7, tags=("blog-new", "bio"))
 def home_page_content():
     # generate home page content ...
     ...
-    return {"title": "My tech blog", "bio": {...}}
+    return {"title": "My tech blog", "bio": {...}, "recent_blogs": [...]}
 
     ...
     # in some case content is not available and you don't want
@@ -45,7 +45,7 @@ content = home_page_content()
 
 - Later, you make changes to your bio (which is displayed on home page), then you can invalidate all caches containing the bio
 
-```
+```python
 cache.invalidate_tag("bio")
 ```
 
@@ -53,22 +53,22 @@ cache.invalidate_tag("bio")
 
 The cache directory looks like:
 
-```
+```bash
 .
 ├── data
 │   ├── 18
 │   │   └── ae
-│   │       └── tag:62696f					<-- tag directory: hexlify('bio')
+│   │       └── tag:62696f                  <-- tag directory: hexlify('bio')
 │   │           └── 85
 │   │               └── 110235185           <-- hardlink of 'key:626c6f672d686f6d65'
 │   ├── 37
 │   │   └── 64
-│   │       └── tag:626c6f672d6e6577		<-- tag directory: hexlify('blog-new')
+│   │       └── tag:626c6f672d6e6577        <-- tag directory: hexlify('blog-new')
 │   │           └── 85
 │   │               └── 110235185           <-- hardlink of 'key:626c6f672d686f6d65'
 │   └── ae
 │       └── 08
-│           └── key:626c6f672d686f6d65		<-- cache file: hexlify('blog-home')
+│           └── key:626c6f672d686f6d65      <-- cache file: hexlify('blog-home')
 └── tmp
 ```
 
@@ -93,17 +93,17 @@ Invalidate tag process: just remove the tag directory
 
 ## Clean up
 
-The cache directory will be filled with many tag links and expired cache after a while. You may want to clean up periodically (in cron).
+The cache directory will be filled with many tag links and expired cache files after a while. You may want to clean up the directory periodically (like in cron).
 
 Remove all expired files
 
-```
+```bash
 $ cd $CACHE_DIR && touch now && find . -type f ! -mnewer now -print -delete
 ```
 
 Remove all expired tag links
 
-```
+```bash
 $ cd $CACHE_DIR && touch now && find . -regex '.*/tag:.*' -type f ! -mnewer now -print -delete
 ```
 
