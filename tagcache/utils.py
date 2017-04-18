@@ -14,7 +14,7 @@ def ensure_dir(path):
 
         os.makedirs(path)
 
-    except OSError, e:
+    except OSError as e:
 
         if e.errno != errno.EEXIST:
 
@@ -37,7 +37,7 @@ def open_file(filename, flag, mode=0777):
 
         return os.open(filename, flag, mode)
 
-    except OSError, e:
+    except OSError as e:
 
         if e.errno != errno.ENOENT or not (flag & os.O_CREAT):
 
@@ -59,7 +59,7 @@ def link_file(src, dst):
 
         return os.link(src, dst)
 
-    except OSError, e:
+    except OSError as e:
 
         if e.errno != errno.ENOENT:
 
@@ -79,7 +79,7 @@ def rename_file(old, new):
 
         return os.rename(old, new)
 
-    except OSError, e:
+    except OSError as e:
 
         if e.errno != errno.ENOENT:
 
@@ -100,7 +100,7 @@ def silent_close(fd):
 
         return os.close(fd)
 
-    except OSError, e:
+    except OSError as e:
 
         if e.errno != errno.EBADF:
 
@@ -117,7 +117,7 @@ def silent_unlink(path):
 
         return os.unlink(path)
 
-    except OSError, e:
+    except OSError as e:
 
         if e.errno != errno.ENOENT:
 

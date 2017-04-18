@@ -229,7 +229,7 @@ class CacheItem(object):
 
                 f = open(self.path, 'rb')
 
-            except IOError, e:
+            except IOError as e:
 
                 if e.errno != errno.ENOENT:
 
