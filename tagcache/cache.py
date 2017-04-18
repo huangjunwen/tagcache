@@ -23,11 +23,27 @@ _future_timestamp = 2**32
 
 class Cache(object):
     """
+    Example usage:
 
-    'key' and 'tags' can only contains [a-zA-Z0-9\-_\.@].
+        cache = Cache()
+        cache.configure('/tmp/blog_cache')
+
+        @cache('blog-home', expire=3600*24*7, tags=('blog-new', 'bio'))
+        def home_page_content():
+            # generate home page content ...
+            ...
+            return {"bio": {...}, "recent_blogs": [...]}
+
+            ...
+            # in some case content is not available and you don't want
+            # to cache the return value.
+            return NotCache(return_value)
+
+        content = home_page_content()
 
     """
 
+    # 'key' and 'tags' can only contains [a-zA-Z0-9\-_\.@].
     key_matcher = re.compile(r'^[A-z0-9\-_\.@]+$').match
 
     def __init__(self, main_dir=None, hash_method=md5, serializer=None):
@@ -130,17 +146,7 @@ class Cache(object):
 
     def __call__(self, key, expire=None, tags=None):
         """
-        Main decorator. Example usage:
-
-            cache = Cache()
-            cache.configure('/var/cache')
-
-            @cache('blog-home', expire=3600*24*7, tags=('home', 'blog'))
-            def blog_home():
-                ...
-                ...
-
-            value = blog_home()
+        Main decorator.
 
         """
 
@@ -306,7 +312,7 @@ class CacheItem(object):
                 # Using the inode as tag file name.
                 st = os.fstat(tmp_file.file.fileno())
 
-                tag_file_name = '{0}'.format(st.st_ino)
+                tag_file_name = '{0}:{1}'.format(len(self.tags)+1, st.st_ino)
 
                 sub_dir = tag_file_name[-2:]
 
