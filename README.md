@@ -5,6 +5,12 @@
 - linux
 - macos
 
+## How to install
+
+```base
+$ pip install tagcache
+```
+
 ## Example usage
 
 Suppose you have a blog. And want to cache blog pages (e.g. home page).
