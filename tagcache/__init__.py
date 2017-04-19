@@ -1,7 +1,7 @@
 # -*- encoding: utf-8 -*-
 
 from tagcache import metadata
-from tagcache.cache import Cache, NotCache
+from tagcache.cache import Cache
 
 __version__ = metadata.version
 

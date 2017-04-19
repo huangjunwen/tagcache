@@ -29,15 +29,22 @@ class Cache(object):
         cache.configure('/tmp/blog_cache')
 
         @cache('blog-home', expire=3600*24*7, tags=('blog-new', 'bio'))
-        def home_page_content():
+        def home_page_content(cache_param):
+
+            ...
+            # sometimes content is not available and you don't want
+            # to cache the return value.
+            cache_param.disable()
+
+            # sometimes tags are only known at runtime
+            cache_param.tags.add('some-more-tag')
+
+            # sometimes you want to change expire
+            cache_param.expire = 3600*24
+
             # generate home page content ...
             ...
             return {"bio": {...}, "recent_blogs": [...]}
-
-            ...
-            # in some case content is not available and you don't want
-            # to cache the return value.
-            return NotCache(return_value)
 
         content = home_page_content()
 
@@ -260,12 +267,32 @@ class Cache(object):
 
 class CacheItem(object):
 
+    class _CacheParam(object):
+        """
+        The param of content function.
+
+        """
+
+        def __init__(self, expire, tags):
+
+            self.expire = expire
+
+            self.tags = tags
+
+            self.disabled = False
+
+        def disable(self):
+
+            self.disabled = True
+
     def __init__(self, cache, key, content_fn, expire=None, tags=None):
         """
-        CacheItem represents a single cached item with key 'key' and
-        optional some 'tags'.
+        CacheItem represents a single cache item with key 'key', an
+        optinal an expiration, some optional 'tags'. When expiration
+        reached or some of its tags is invalidated, the item is considered
+        out of date.
 
-        The format in file is:
+        The format in cache file is:
 
         ```
         tag1:tag2:tag3
@@ -278,7 +305,7 @@ class CacheItem(object):
         :param cache: Cache object.
         :param key: the key for this cache item.
         :param content_fn: the function to generate content on demand, the
-            function should return a seekable io.BufferedIOBase object.
+            function should return serializable object.
         :param expire (optional): default None (never expire), expire interval
             in seconds (int).
         :param tags (optional): default None (no tag), list of tag names.
@@ -358,15 +385,23 @@ class CacheItem(object):
 
     def _generate(self):
 
-        content = self.content_fn()
+        # Copy params.
+        param = _CacheParam(self.expire, self.tags.copy())
 
-        # Do not cache the generated object.
-        if isinstance(content, NotCache):
+        content = self.content_fn(param)
 
-            return content.not_cache_object
+        # Do not cache?
+        if param.disabled:
 
-        # Serialize content into io.
+            return content
+
+        # Prepare params.
         content_io = self.cache.serializer.serialize(content)
+
+        tags = param.tags
+        
+        expire_time = _future_timestamp if not param.expire else \
+                int(time()) + param.expire
 
         tmp_file = tmp_file_path = None
 
@@ -380,22 +415,22 @@ class CacheItem(object):
 
             # Write content.
             tmp_file.write('\n'.join([
-                ":".join(self.tags),
+                ":".join(tags),
                 content_io.read(),
             ]))
 
             # Link tags.
-            if self.tags:
+            if tags:
 
-                # Using the inode as tag file name.
-                st = os.fstat(tmp_file.file.fileno())
+                # Using the nlinks + inode as tag file name.
+                st = os.fstat(tmp_file.fileno())
 
-                tag_file_name = '{0}:{1}'.format(len(self.tags)+1, st.st_ino)
+                tag_file_name = '{0}:{1}'.format(len(tags)+1, st.st_ino)
 
                 sub_dir = tag_file_name[-2:]
 
                 # Hard link tags.
-                for tag in self.tags:
+                for tag in tags:
 
                     tag_file_path = os.path.join(
                             self.cache.tag_to_path(tag), sub_dir,
@@ -410,9 +445,6 @@ class CacheItem(object):
             tmp_file = None
 
             # Using mtime as expire time.
-            expire_time = _future_timestamp if not self.expire else \
-                    int(time()) + self.expire
-
             os.utime(tmp_file_path, (expire_time, expire_time))
 
             # Final step. Move the tmp file to destination. This is
@@ -454,19 +486,6 @@ class CacheItem(object):
 
             tags.remove('')
 
-        tags_invalid = tags != self.tags or len(tags) + 1 != st.st_nlink
+        tags_invalid = len(tags) + 1 != st.st_nlink
 
         return expired, tags_invalid, f
-
-
-class NotCache(object):
-    """
-    Sometimes you don't want to cache the object you return.
-
-    """
-
-    def __init__(self, not_cache_object):
-
-        self.not_cache_object = not_cache_object
-
-
