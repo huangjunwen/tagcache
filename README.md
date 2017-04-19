@@ -34,19 +34,28 @@ cache.configure('/tmp/blog_cache')
   - finally call the decorated function to get content, the function will use cache or call the original function to generate new content when cache miss
 
 ```python
-@cache("blog-home", expire=3600*24*7, tags=("blog-new", "bio"))
-def home_page_content():
+cache = Cache()
+cache.configure('/tmp/blog_cache')
+
+@cache('blog-home', expire=3600*24*7, tags=('blog-new', 'bio'))
+def home_page_content(cache_param):
+
+    ...
+    # sometimes content is not available and you don't want
+    # to cache the return value.
+    cache_param.disable()
+
+    # sometimes tags are only known at runtime
+    cache_param.tags.add('some-more-tag')
+
+    # sometimes you want to change expire
+    cache_param.expire = 3600*24
+
     # generate home page content ...
     ...
     return {"bio": {...}, "recent_blogs": [...]}
 
-    ...
-    # in some case content is not available and you don't want
-    # to cache the return value.
-    return NotCache(return_value)
-
 content = home_page_content()
-
 ```
 
 - Later, you make changes to your bio (which is displayed on home page), then you can invalidate all caches containing the bio
