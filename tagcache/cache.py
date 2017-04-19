@@ -386,7 +386,7 @@ class CacheItem(object):
     def _generate(self):
 
         # Copy params.
-        param = _CacheParam(self.expire, self.tags.copy())
+        param = self._CacheParam(self.expire, self.tags.copy())
 
         content = self.content_fn(param)
 
