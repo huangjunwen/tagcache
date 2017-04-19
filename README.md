@@ -55,6 +55,12 @@ content = home_page_content()
 cache.invalidate_tag("bio")
 ```
 
+- Periodically, you need to clean up those expired or invalid files.
+
+```python
+cache.cleanup()
+```
+
 ## How it works
 
 The cache directory looks like:
@@ -66,12 +72,12 @@ The cache directory looks like:
 │   │   └── ae
 │   │       └── tag:62696f                  <-- tag directory: hexlify('bio')
 │   │           └── 85
-│   │               └── 110235185           <-- hardlink of 'key:626c6f672d686f6d65'
+│   │               └── 3:110235185         <-- hardlink of 'key:626c6f672d686f6d65'
 │   ├── 37
 │   │   └── 64
 │   │       └── tag:626c6f672d6e6577        <-- tag directory: hexlify('blog-new')
 │   │           └── 85
-│   │               └── 110235185           <-- hardlink of 'key:626c6f672d686f6d65'
+│   │               └── 3:110235185         <-- hardlink of 'key:626c6f672d686f6d65'
 │   └── ae
 │       └── 08
 │           └── key:626c6f672d686f6d65      <-- cache file: hexlify('blog-home')
@@ -82,40 +88,23 @@ Load process:
 
 1. Try to open exists cache file: `"key:" + hexlify(key)`
 1. If not found, generate content (see below)
-1. If found, check expiration (`st_mtime` as expire time), check tags validation (`st_nlink`)
-    1. If previous checks passed, return the cache directly
+1. If found, check expiration (`st_mtime` as expire time) and tags validation (`st_nlink`)
+    1. If all checks were passed, return the cache directly
     1. Try to flock the cache file in non-blocking mode, generate content if success, return cache otherwise
 
 
 Generate content process:
 
 1. Create a temporary file under tmp and save serialized content (with tags info as well)
-1. Hardlink the temporary file into tag directories (inode number as link name)
+1. Hardlink the temporary file into tag directories (`nlinks + inode number` as link name)
 1. Change the `mtime` of the temporary file to the expire time
 1. Atomic move (rename) the temporary file to the final destination: `"key:" + hexlify(key)`
 
 Invalidate tag process: just remove the tag directory
 
-
-## Clean up
-
-The cache directory will be filled with many tag links and expired cache files after a while. You may want to clean up the directory periodically (like in cron).
-
-Remove all expired files
-
-```bash
-$ cd $CACHE_DIR && touch now && find . -type f ! -mnewer now -print -delete
-```
-
-Remove all expired tag links
-
-```bash
-$ cd $CACHE_DIR && touch now && find . -regex '.*/tag:.*' -type f ! -mnewer now -print -delete
-```
-
 ## Author
 
-Huang junwen <kassarar@gmail.com>
+Huang junwen (email: <kassarar@gmail.com>)
 
 ## Licence
 
