@@ -46,6 +46,10 @@ class Cache(object):
     # 'key' and 'tags' can only contains [a-zA-Z0-9\-_\.@].
     key_matcher = re.compile(r'^[A-z0-9\-_\.@]+$').match
 
+    key_ns = 'k'
+
+    tag_ns = 't'
+
     def __init__(self, main_dir=None, hash_method=md5, serializer=None):
         """
         Create a cache object. `hash_method` is used to hash keys
@@ -115,11 +119,11 @@ class Cache(object):
 
     def key_to_path(self, name):
 
-        return self.name_to_path(name, ns='key')
+        return self.name_to_path(name, ns=self.key_ns)
 
     def tag_to_path(self, name):
 
-        return self.name_to_path(name, ns='tag')
+        return self.name_to_path(name, ns=self.tag_ns)
 
     def invalidate_tag(self, tag):
         """
@@ -178,6 +182,80 @@ class Cache(object):
                     tags=tags)
 
         return ret
+
+    def cleanup(self, reserve_cache=True):
+        """
+        Clean expired or invalid files.
+
+        :param reserve_cache (optional): do not remove cache files (only
+            remove tag links)
+
+        """
+        now = time()
+
+        def listdir(path):
+
+            for item in os.listdir(path):
+
+                yield os.path.join(path, item)
+
+        def handle_key(path):
+
+            try:
+
+                st = os.stat(path)
+
+            except OSError:
+
+                return
+
+            # expire < now
+            if st.st_mtime < now:
+
+                silent_unlink(path)
+
+        def handle_tag_link(path):
+
+            try:
+
+                st = os.stat(path)
+
+            except OSError:
+
+                return
+
+            links = int(os.path.basename(path).split(':')[0])
+
+            # expire < now or links changes
+            if st.st_mtime < now or links != st.st_nlink:
+
+                silent_unlink(path)
+
+        for lvl1 in listdir(self.data_dir):
+
+            for lvl2 in listdir(lvl1):
+
+                for lvl3 in listdir(lvl2):
+
+                    ns = os.path.basename(lvl3).split(':')[0]
+
+                    # For keys.
+                    if ns == self.key_ns:
+
+                        if reserve_cache:
+
+                            continue
+
+                        handle_key(lvl3)
+
+                    # For tag links.
+                    elif ns == self.tag_ns:
+
+                        for lvl4 in listdir(lvl3):
+
+                            for lvl5 in listdir(lvl4):
+
+                                handle_tag_link(lvl5)
 
 
 class CacheItem(object):
