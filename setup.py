@@ -8,20 +8,22 @@ except ImportError:
 
     from distutils.core import setup
 
+from tagcache import metadata
+
 setup(
     name='TagCache',
-    version='0.2',
-    description='A small file-based cache library with tag support',
+    version=metadata.version,
+    description=metadata.description,
     long_description=open("README.md").read(),
     classifiers=[
 	"Programming Language :: Python :: 2",
 	"Programming Language :: Python :: 2.7",
 	"Topic :: Software Development :: Libraries",
     ],
-    author='Huang junwen',
-    author_email='kassarar@gmail.com',
-    url='https://github.com/huangjunwen/tagcache',
-    license='MIT',
+    author=metadata.authors[0],
+    author_email=metadata.emails[0],
+    url=metadata.url,
+    license=metadata.license,
     keywords='python cache tag file-based',
     packages=['tagcache'],
     zip_safe=False,

@@ -2,7 +2,7 @@
 
 package = 'tagcache'
 
-version = '0.2'
+version = '0.2.1'
 
 description = 'A small file-based cache library with tag support.'
 
