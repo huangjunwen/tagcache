@@ -10,7 +10,7 @@ except ImportError:
 
 setup(
     name='TagCache',
-    version='0.1',
+    version='0.2',
     description='A small file-based cache library with tag support',
     long_description=open("README.md").read(),
     classifiers=[
