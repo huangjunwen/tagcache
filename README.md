@@ -34,8 +34,6 @@ cache.configure('/tmp/blog_cache')
   - finally call the decorated function to get content, the function will use cache or call the original function to generate new content when cache miss
 
 ```python
-cache = Cache()
-cache.configure('/tmp/blog_cache')
 
 @cache('blog-home', expire=3600*24*7, tags=('blog-new', 'bio'))
 def home_page_content(cache_param):
