@@ -155,6 +155,24 @@ class Cache(object):
 
         os.utime(self.key_to_path(key), None)
 
+    def check_expire(self, expire):
+
+        if expire is not None and not isinstance(expire, int):
+
+            raise TypeError(
+                "Expect integer value for expire but got {0!r}".format(
+                type(expire)))
+
+    def check_tags(self, tags):
+
+        if tags:
+
+            for tag in tags:
+
+                if not self.key_matcher(tag):
+
+                    raise ValueError("Bad tag format {0!r}".format(tag))
+
     def __call__(self, key, expire=None, tags=None):
         """
         Main decorator.
@@ -165,19 +183,9 @@ class Cache(object):
 
             raise ValueError("Bad key format {0!r}".format(key))
 
-        if expire is not None and not isinstance(expire, int):
+        self.check_expire(expire)
 
-            raise TypeError(
-                "Expect integer value for expire but got {0!r}".format(
-                type(expire)))
-
-        if tags:
-
-            for tag in tags:
-
-                if not self.key_matcher(tag):
-
-                    raise ValueError("Bad tag format {0!r}".format(tag))
+        self.check_tags(tags)
 
         def ret(content_fn):
 
@@ -413,13 +421,17 @@ class CacheItem(object):
 
             return content
 
-        # Prepare params.
+        # Check and prepare params.
+        self.cache.check_expire(param.expire)
+
+        self.cache.check_tags(param.tags)
+
         content_io = self.cache.serializer.serialize(content)
 
-        tags = param.tags
-        
         expire_time = _future_timestamp if not param.expire else \
                 int(time()) + param.expire
+
+        tags = param.tags
 
         tmp_file = tmp_file_path = None
 
