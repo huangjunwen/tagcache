@@ -115,13 +115,17 @@ def silent_unlink(path):
 
     try:
 
-        return os.unlink(path)
+        os.unlink(path)
+
+        return True
 
     except OSError as e:
 
         if e.errno != errno.ENOENT:
 
             raise e
+    
+    return False
 
 
 class cached_property(object):

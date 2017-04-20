@@ -190,12 +190,11 @@ class Cache(object):
 
         return ret
 
-    def cleanup(self, reserve_cache=True):
+    def cleanup(self):
         """
         Clean expired or invalid files.
 
-        :param reserve_cache (optional): do not remove cache files (only
-            remove tag links)
+        :return: (unlink keys count, unlink tag links count)
 
         """
         now = time()
@@ -214,12 +213,14 @@ class Cache(object):
 
             except OSError:
 
-                return
+                return False
 
             # expire < now
             if st.st_mtime < now:
 
-                silent_unlink(path)
+                return silent_unlink(path)
+
+            return False
 
         def handle_tag_link(path):
 
@@ -229,14 +230,29 @@ class Cache(object):
 
             except OSError:
 
-                return
+                return False
 
             links = int(os.path.basename(path).split(':')[0])
 
             # expire < now or links changes
             if st.st_mtime < now or links != st.st_nlink:
 
-                silent_unlink(path)
+                # make it expire
+                try:
+
+                    os.utime(path, None)
+
+                except OSError:
+
+                    pass
+
+                return silent_unlink(path)
+
+            return False
+
+        unlink_keys = 0
+
+        unlink_tag_links = 0
 
         for lvl1 in listdir(self.data_dir):
 
@@ -249,11 +265,9 @@ class Cache(object):
                     # For keys.
                     if ns == self.key_ns:
 
-                        if reserve_cache:
+                        if handle_key(lvl3):
 
-                            continue
-
-                        handle_key(lvl3)
+                            unlink_keys += 1
 
                     # For tag links.
                     elif ns == self.tag_ns:
@@ -262,7 +276,11 @@ class Cache(object):
 
                             for lvl5 in listdir(lvl4):
 
-                                handle_tag_link(lvl5)
+                                if handle_tag_link(lvl5):
+
+                                    unlink_tag_links += 1
+
+        return unlink_keys, unlink_tag_links
 
 
 class CacheItem(object):
